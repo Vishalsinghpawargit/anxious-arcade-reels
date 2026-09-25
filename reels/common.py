@@ -36,14 +36,44 @@ def _cookies():
     return []
 
 
+def _stop_live_now(data, edge):
+    """A live stream downloads from its start up to now instead of following it forever
+    (same as the laptop app's stop_live_at)."""
+    from urllib.parse import parse_qs, urlparse
+
+    def capped(fragments):
+        def generate(ctx):
+            for frag in fragments(ctx):
+                edge.setdefault('last', frag['fragment_count'])
+                if int(parse_qs(urlparse(frag['url']).query)['sq'][0]) >= edge['last']:
+                    return
+                yield {**frag, 'fragment_count': edge['last']}
+        return generate
+
+    for fmt in data.get('formats') or []:
+        if fmt.get('is_from_start') and callable(fmt.get('fragments')):
+            fmt['fragments'] = capped(fmt['fragments'])
+
+
 def youtube(url, stem, height=1080, audio_only=False):
-    """Download a YouTube (or any yt-dlp supported) link. Returns the file path."""
-    fmt = 'bestaudio[ext=m4a]/bestaudio' if audio_only else \
-        f'bestvideo[height<={height}][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<={height}]'
-    tmpl = str(WORK / f'{stem}.%(ext)s')
-    run(['yt-dlp', '--js-runtimes', 'node', '-N', '8', '--no-playlist', '--no-part', *_cookies(),
-         '-f', fmt, '--merge-output-format', 'mp4', '-o', tmpl, url])
-    return next(p for p in WORK.glob(f'{stem}.*') if p.suffix in ('.mp4', '.m4a', '.webm', '.mkv', '.mp3'))
+    """Download a YouTube (or any yt-dlp supported) link. Returns the file path.
+    A stream that is still live is taken from its start up to now."""
+    import yt_dlp
+    opts = {'noplaylist': True, 'js_runtimes': {'node': {}}, 'concurrent_fragment_downloads': 8,
+            'outtmpl': str(WORK / f'{stem}.%(ext)s'), 'live_from_start': True, 'noprogress': True,
+            'format': 'bestaudio[ext=m4a]/bestaudio' if audio_only else 'bv*+ba/b',
+            'format_sort': [] if audio_only else [f'res:{height}', 'vcodec:h264', 'acodec:aac'],
+            'merge_output_format': 'mp4'}
+    cookies = _cookies()
+    if cookies:
+        opts['cookiefile'] = cookies[1]
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        data = ydl.extract_info(url, download=False)
+        if data.get('is_live'):
+            print('Stream is live: downloading from its start up to now', flush=True)
+            _stop_live_now(data, {})
+        data = ydl.process_ie_result(data, download=True)
+    return Path(data['requested_downloads'][0]['filepath'])
 
 
 def fetch(url, stem):
