@@ -1,0 +1,47 @@
+name: 2. Day highlight Reel
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: "Broadcast YouTube link(s), separated by spaces"
+        required: true
+      top:
+        description: "Title line 1 (green)"
+        default: "GLIMPSES OF"
+      main:
+        description: "Title line 2 (big white)"
+        required: true
+        default: "DAY 1"
+      length:
+        description: "Reel length in seconds"
+        default: "60"
+      footer:
+        description: "Bottom line"
+        default: "BMSD 2026"
+permissions:
+  contents: write
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      YT_COOKIES: ${{ secrets.YT_COOKIES }}
+      TITLE: "${{ inputs.top }} ${{ inputs.main }}"
+    steps:
+      - name: Free disk space for the broadcast
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          pip install -q -r requirements.txt
+      - name: Make the Reel
+        run: python -m reels.broadcast day --urls "${{ inputs.urls }}" --top "${{ inputs.top }}" --main "${{ inputs.main }}" --length "${{ inputs.length }}" --footer "${{ inputs.footer }}"
+      - name: Publish to Releases
+        if: always() && hashFiles('out/*.mp4') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "reel-${{ github.run_id }}" out/*.mp4 --title "$TITLE" --notes "Made by run ${{ github.run_number }}. Tap a file below to download it."

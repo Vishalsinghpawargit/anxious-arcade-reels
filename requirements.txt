@@ -1,0 +1,5 @@
+yt-dlp[default]
+numpy
+pillow
+rapidocr-onnxruntime
+gdown
