@@ -1,0 +1,37 @@
+name: 5. Full day match highlight
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Full broadcast YouTube link"
+        required: true
+permissions:
+  contents: write
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      YT_COOKIES: ${{ secrets.YT_COOKIES }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      SHEET_FONT: /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+      TITLE: "Full day match highlight"
+    steps:
+      - name: Free disk space for the broadcast
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core > /dev/null
+          pip install -q -r requirements.txt faster-whisper pydantic imageio-ffmpeg
+          npm install -g -s @anthropic-ai/claude-code
+      - name: Make the highlight
+        run: python -m reels.full_day --url "${{ inputs.url }}"
+      - name: Publish to Releases
+        if: always() && hashFiles('out/*.mp4') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "day-${{ github.run_id }}" out/* --title "$TITLE" --notes "$(cat out/Chapters.txt 2>/dev/null)"
