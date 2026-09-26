@@ -190,20 +190,42 @@ def _step(x):
     return np.r_[np.inf, np.abs(np.diff(x, axis=0)).mean(axis=tuple(range(1, x.ndim)))]
 
 
-def classify(frames):
-    """Per sampled frame: is it gameplay, and how much the picture changed since the one before."""
-    # The event logo and "QUALIFIERS  WEEK 1" in the bottom-left HUD box are the same in every match.
-    # (Group and match number next to them change, so they are left out.) On Day 1 of BMSD 2026 this
-    # found 82-91% of every match's gameplay frames and none in the breaks.
-    logo = frames[:, 77:89, 0:27].astype(np.float32)
+# Where each broadcast keeps its event logo during live play, in 160x90 scan frames (rows, columns).
+LOGOS = {
+    # BMSD: the event logo and "QUALIFIERS  WEEK 1" in the bottom-left HUD box. Group and match number
+    # next to them change, so they are left out. On Day 1 of BMSD 2026 this found 82-91% of every
+    # match's gameplay frames and none in the breaks.
+    'BMSD': ((77, 89), (0, 27)),
+    # PMGO: the "PUBG MOBILE GLOBAL OPEN" logo above the bottom-left match box. On PMGO S2 EECA Finals
+    # Day 1 the BMSD box marked 95% of the day as gameplay; this one found the 6 matches of 23-28 min.
+    'PMGO': ((64, 75), (3, 25)),
+}
+
+
+def _is_game(frames, rows, cols):
+    logo = frames[:, rows[0]:rows[1], cols[0]:cols[1]].astype(np.float32)
     center = frames[:, 15:75:2, 30:125:2].astype(np.float32)
-    change = _step(frames[:, ::3, ::3].astype(np.float32))
     # In gameplay the HUD holds still while the game view moves. Desk shots and countdowns have a
     # still center, ads change everywhere. The median of these seed frames is the typical HUD.
     center_step = _step(center)
     seed = (_step(logo) < np.percentile(_step(logo)[1:], 50)) & (center_step > np.median(center_step[1:]))
     distance = np.abs(logo - np.median(logo[seed], axis=0)).mean(axis=(1, 2))
-    return drop_lone(distance < otsu(distance)), change
+    return drop_lone(distance < otsu(distance))
+
+
+def classify(frames, times=None):
+    """Per sampled frame: is it gameplay, and how much the picture changed since the one before.
+
+    Each known logo position is tried. The one kept finds the most matches of a real match length;
+    the wrong one either finds nothing or runs the whole day together as one match."""
+    change = _step(frames[:, ::3, ::3].astype(np.float32))
+    best, best_count = None, -1
+    for rows, cols in LOGOS.values():
+        is_game = _is_game(frames, rows, cols)
+        count = len([m for m in find_matches(times, is_game) if m[1] - m[0] <= 50 * 60]) if times is not None else 0
+        if count > best_count:
+            best, best_count = is_game, count
+    return best, change
 
 
 def drop_lone(is_game):
@@ -400,7 +422,7 @@ def make_match_highlight(src, target, update):
     looked = cached(src, 'frames',
                     lambda: dict(zip(('times', 'frames'), scan_frames(src, duration, update))))
     times, frames = looked['times'], looked['frames']
-    is_game, change = classify(frames)
+    is_game, change = classify(frames, times)
     # A match still being played when the video ends has no chicken dinner or points table yet.
     matches = [m for m in find_matches(times, is_game) if duration - m[1] > 120]
     if not matches:
