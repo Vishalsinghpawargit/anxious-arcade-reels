@@ -20,7 +20,6 @@ dropped to hit a length.
 import base64
 import hashlib
 import io
-import os
 import subprocess
 import tempfile
 import threading
@@ -492,6 +491,11 @@ def make_match_highlight(src, target, update):
             # A points table often has two pages; its tile may show the second, so start a little before it.
             tables = [graphic(plan, pick.points_table, TABLE_SHOW, lead=10)] if pick else []
             final = [graphic(plan, letter, TABLE_SHOW, lead=4) for letter in day.final_standings] if i == len(plans) else []
+            if len(final) == 1 and final[0]:
+                # One overall table for the whole day (PMGO) runs over two pages in one shot, and the
+                # tile Claude sees may be page 2 (ranks 9-16). Start from the shot's start, up to 40 s
+                # earlier, and allow both pages. On PMGO S2 EECA Finals Day 1 page 1 came 38 s before.
+                final = [graphic(plan, day.final_standings[0], 2 * TABLE_SHOW + 5, lead=40)]
             if any(final):
                 # After the last match: every group's overall standings instead of a single table.
                 tables = final
