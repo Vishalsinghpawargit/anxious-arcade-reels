@@ -201,8 +201,21 @@ LOGOS = {
 }
 
 
-def _is_game(frames, rows, cols):
+LOGO_REFERENCES = Path(__file__).with_name('logos')
+# Distance to a saved reference logo below which a frame is live play. On PMGO S2 EECA Finals Day 1,
+# 90% of live frames were under 26.4 and 90% of the rest over 51.3.
+REFERENCE_MATCH = 25
+
+
+def _is_game(frames, rows, cols, name=None):
     logo = frames[:, rows[0]:rows[1], cols[0]:cols[1]].astype(np.float32)
+    reference = LOGO_REFERENCES / f'{name}.npy' if name else None
+    if reference and reference.exists():
+        # A saved picture of the live-play logo. PMGO Finals Days 2 and 3 fill their breaks with
+        # "BE RIGHT BACK / HIGHLIGHTS" replays, so learning the typical logo from the day itself
+        # found 3 of 6 matches on Day 2; the reference from Day 1 finds all of them.
+        distance = np.abs(logo - np.load(reference)).mean(axis=(1, 2))
+        return drop_lone(distance < REFERENCE_MATCH)
     center = frames[:, 15:75:2, 30:125:2].astype(np.float32)
     # In gameplay the HUD holds still while the game view moves. Desk shots and countdowns have a
     # still center, ads change everywhere. The median of these seed frames is the typical HUD.
@@ -219,8 +232,8 @@ def classify(frames, times=None):
     the wrong one either finds nothing or runs the whole day together as one match."""
     change = _step(frames[:, ::3, ::3].astype(np.float32))
     best, best_count = None, -1
-    for rows, cols in LOGOS.values():
-        is_game = _is_game(frames, rows, cols)
+    for name, (rows, cols) in LOGOS.items():
+        is_game = _is_game(frames, rows, cols, name)
         count = len([m for m in find_matches(times, is_game) if m[1] - m[0] <= 50 * 60]) if times is not None else 0
         if count > best_count:
             best, best_count = is_game, count
