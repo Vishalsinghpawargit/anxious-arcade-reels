@@ -494,6 +494,17 @@ def make_match_highlight(src, target, update):
                     kept.append((s, e))
             if not kept:  # Claude skipped the match, so fall back to everything that was detected
                 kept = [(f['start'], f['end']) for f in plan['fights'] if f['start'] >= began[1]]
+            # Safety net: a live fight at least as hot as this match's typical candidate goes back in
+            # when Claude dropped it. On PMGO Finals Day 2 Claude kept 21 of 109 candidates and left
+            # out live fights with knocks and elimination banners on screen.
+            if plan['fights']:
+                typical = float(np.median([f['heat'] for f in plan['fights']]))
+                for f in plan['fights']:
+                    s, e = max(began[1], f['start']), min(plan['end'] - FINAL_FIGHT, f['end'], f['start'] + MAX_CLIP)
+                    if (f['live'] >= 0.8 and f['heat'] >= typical and e - s >= 8
+                            and all(e <= a or s >= b for a, b in kept)):
+                        kept.append((s, e))
+                kept.sort()
             match_parts = [began] + sorted(kept) + [(plan['end'] - FINAL_FIGHT, plan['end'] + 3)]
             wwcd = graphic(plan, pick.chicken_dinner, WWCD_SHOW) if pick else None
             match_parts.append(wwcd or (plan['end'] + 3, plan['end'] + 3 + WWCD_SHOW))
