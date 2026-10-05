@@ -1,0 +1,1 @@
+{"system":"You answer briefly.","prompt":"Reply with the word ready and the number 42.","schema":{"type":"object","properties":{"word":{"type":"string"},"number":{"type":"integer"}},"required":["word","number"],"additionalProperties":false},"model":"haiku","thinking":0}
